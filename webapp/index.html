@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parallel Image Processing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="static/css/style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Parallel Image Processing</h1>
+  <p>Run the same filter pipeline on one core, then on many, and see how much faster it gets.</p>
+</header>
+
+<main class="layout">
+  <aside class="panel" aria-label="Run settings">
+    <h2>Run settings</h2>
+
+    <fieldset>
+      <legend>What to run</legend>
+      <label><input type="radio" name="kind" value="sequential"> Sequential (1 core)</label>
+      <label><input type="radio" name="kind" value="parallel"> Parallel</label>
+      <label><input type="radio" name="kind" value="benchmark" checked> Full benchmark (1, 2, 4, 8 workers)</label>
+    </fieldset>
+
+    <label class="field">Worker processes
+      <select id="workers">
+        <option>1</option><option>2</option><option selected>4</option><option>8</option>
+      </select>
+    </label>
+
+    <label class="field">Runs per test
+      <input id="runs" type="number" min="1" max="5" value="3">
+    </label>
+
+    <button id="run" class="primary" type="button">Run benchmark</button>
+    <p id="note" class="note"></p>
+  </aside>
+
+  <div class="content">
+    <section class="card" aria-live="polite">
+      <div class="row">
+        <h2>Progress</h2>
+        <span id="state" class="pill">Idle</span>
+      </div>
+      <div id="cores" class="cores" aria-label="CPU cores in use"></div>
+      <div class="bar"><div id="bar-fill"></div></div>
+      <p id="message" class="note">Choose a run and press the button.</p>
+    </section>
+
+    <section class="card">
+      <div class="row">
+        <h2>Results</h2>
+        <span id="verify" class="pill">Not verified yet</span>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>Workers</th><th>Time (s)</th><th>Speedup</th><th>Efficiency</th><th>Images/s</th></tr>
+          </thead>
+          <tbody id="rows"><tr><td colspan="5" class="empty">No results yet. Run a benchmark to fill this table.</td></tr></tbody>
+        </table>
+      </div>
+      <p id="count" class="note"></p>
+    </section>
+
+    <section class="card">
+      <h2>Charts</h2>
+      <div class="charts">
+        <div><canvas id="chart-time"></canvas></div>
+        <div><canvas id="chart-speedup"></canvas></div>
+        <div><canvas id="chart-eff"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Image comparison</h2>
+      <div class="compare">
+        <figure><div class="ph" id="img-original">No image yet</div><figcaption>Original</figcaption></figure>
+        <figure><div class="ph" id="img-sequential">No image yet</div><figcaption>Sequential output</figcaption></figure>
+        <figure><div class="ph" id="img-parallel">No image yet</div><figcaption>Parallel output</figcaption></figure>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="static/js/charts.js"></script>
+<script src="static/js/app.js"></script>
+</body>
+</html>
