@@ -32,14 +32,14 @@ PDC concepts used: data parallelism, SPMD, shared-nothing processes, and load ba
 │   └── utils.py        Paths, image I/O, timer
 ├── api/                Back-end for the web interface
 ├── webapp/             Front end (HTML, CSS, JavaScript)
-├── dataset/input/      Input images (not included)
+├── dataset/input/      Input images (128 included)
 ├── output/             Generated results (not included)
 └── docs/               Project proposal and saved results
 ```
 
 ## Setup
 
-Requires Python 3.10 or newer.
+Requires Python 3.13 (the version used for development). Download it from python.org and tick "Add python.exe to PATH" during installation.
 
 ```
 python -m venv .venv
@@ -51,13 +51,9 @@ On macOS or Linux, activate with `source .venv/bin/activate`.
 
 ## Dataset
 
-Images are not stored in this repository. Create the folder and add images to it:
+The 128 test images are included in `dataset/input/`: 118 images (`0001.png` to `0118.png`) from the [Widescreen images 1920x1080 dataset on Kaggle](https://www.kaggle.com/datasets/trinquenta/imagens-widescreen-1920x1080), and 10 additional images (`img 1.jpg` to `img 10.jpg`). See the Kaggle page for that dataset's license terms.
 
-```
-mkdir dataset\input
-```
-
-The project was tested with 128 images at 1920x1080: 118 from the [Widescreen images 1920x1080 dataset on Kaggle](https://www.kaggle.com/datasets/trinquenta/imagens-widescreen-1920x1080) plus 10 other images. Supported formats are JPG, PNG, BMP, and TIFF. Two images must not share the same file name, even with different extensions, because outputs are saved as `<name>.png`.
+To use your own images, replace the contents of that folder. Supported formats are JPG, PNG, BMP, and TIFF. Two images must not share the same file name, even with different extensions, because outputs are saved as `<name>.png`.
 
 ## Usage
 
@@ -95,4 +91,4 @@ The benchmark writes `output/results/benchmark_results.csv`, `system_info.json`,
 
 ## Authors
 
-Demonteverde, Edwin Carl Jr., R. · Delos Reyes, Dwyn Anthony V. · Perdito, Ma. Criselda S. · Rosales, John Leo M.
+Demonteverde, Edwin Carl Jr · Delos Reyes, Dwyn Anthony V. · Perdito, Ma. Criselda S. · Rosales, John Leo M.
