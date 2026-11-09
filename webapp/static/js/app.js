@@ -1,26 +1,19 @@
-// Set to false once Flask is serving /api/* endpoints.
-const USE_MOCK = false;
-
 const $ = id => document.getElementById(id);
-const IMAGE_COUNT = 200;
+const kindNow = () => document.querySelector("input[name=kind]:checked").value;
+const fmt = (v, d) => (v == null || Number.isNaN(v) ? "–" : v.toFixed(d));
+const runList = list => (list || []).map(t => t.toFixed(1)).join(", ") + " s";
 
-/* ---------- API layer (the only part that changes when the back-end is ready) ----------
-   POST /api/run        {mode, workers, runs}  -> {job_id}
-   POST /api/benchmark  {runs}                 -> {job_id}
-   GET  /api/status/<id> -> {
-       state: "running" | "done" | "error",
-       progress: 0-100, message: "...", active_workers: 0-8,
-       sequential_time: seconds | null,
-       runs: [{workers, time}],        // average time per worker count
-       verified: true | false | null,
-       sample: "image_name.jpg" | null // for the image comparison
-   }
+/* ---------- API layer ----------
+   POST /api/run        {mode: "compare", workers, runs} -> {job_id}
+   POST /api/benchmark  {runs}                            -> {job_id}
+   GET  /api/status/<id> -> state, phase, progress, seq_progress, par_progress, message,
+        active_workers, image_count, sequential_time, parallel_time, parallel_workers,
+        sequential_run_times, parallel_run_times, runs, verified
+   GET  /api/images     -> {images: [names]}
 */
 const api = {
   async start(kind, body) {
-    if (USE_MOCK) return mock.start(kind, body);
-    const url = kind === "benchmark" ? "/api/benchmark" : "/api/run";
-    const res = await fetch(url, {
+    const res = await fetch(kind === "benchmark" ? "/api/benchmark" : "/api/run", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
     });
     const data = await res.json();
@@ -28,152 +21,194 @@ const api = {
     return data;
   },
   async status(id) {
-    if (USE_MOCK) return mock.status(id);
     const res = await fetch("/api/status/" + id);
     if (!res.ok) throw new Error("Could not read job status.");
     return res.json();
-  }
-};
-
-/* ---------- Mock back-end: fake numbers shaped like a realistic run ---------- */
-const mock = {
-  jobs: {},
-  SEQ: 120,
-  TP: { 1: 124, 2: 63, 4: 33, 8: 20 },
-  start(kind, body) {
-    const id = "mock-" + Date.now();
-    this.jobs[id] = { kind, body, t0: Date.now(), duration: 7000 };
-    return { job_id: id };
   },
-  status(id) {
-    const j = this.jobs[id];
-    const p = Math.min(1, (Date.now() - j.t0) / j.duration);
-    const all = [1, 2, 4, 8];
-    let runs = [], active = 1, seq = null;
-    if (j.kind === "sequential") {
-      if (p === 1) runs = [{ workers: 1, time: this.SEQ }];
-      seq = p === 1 ? this.SEQ : null;
-    } else if (j.kind === "parallel") {
-      const w = Number(j.body.workers);
-      active = w; seq = this.SEQ;
-      if (p === 1) runs = [{ workers: w, time: this.TP[w] }];
-    } else {
-      const done = Math.floor(p * 4);
-      runs = all.slice(0, done).map(w => ({ workers: w, time: this.TP[w] }));
-      active = all[Math.min(done, 3)]; seq = this.SEQ;
-    }
-    return {
-      state: p === 1 ? "done" : "running",
-      progress: Math.round(p * 100),
-      message: p === 1 ? "Finished." : "Processing " + Math.round(p * IMAGE_COUNT) + " of " + IMAGE_COUNT + " images",
-      active_workers: p === 1 ? 0 : active,
-      sequential_time: seq,
-      runs,
-      verified: p === 1 && j.kind !== "sequential" ? true : null,
-      sample: null
-    };
+  async images() {
+    const res = await fetch("/api/images");
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not list the images.");
+    return data.images;
   }
 };
 
-/* ---------- UI ---------- */
-const coresEl = $("cores");
-for (let i = 1; i <= 8; i++) {
-  const c = document.createElement("div");
-  c.className = "core"; c.textContent = i;
-  coresEl.appendChild(c);
+/* ---------- Small UI helpers ---------- */
+["seq-cores", "par-cores", "bench-cores"].forEach(id => {
+  for (let i = 1; i <= 8; i++) {
+    const c = document.createElement("div");
+    c.className = "core"; c.textContent = i;
+    $(id).appendChild(c);
+  }
+});
+
+function lit(id, n) {
+  [...$(id).children].forEach((c, i) => c.classList.toggle("on", i < (n || 0)));
 }
 
-function showCores(active) {
-  [...coresEl.children].forEach((c, i) => c.classList.toggle("on", i < active));
+function setPill(id, text, cls = "") {
+  const el = $(id);
+  el.className = "pill " + cls;
+  el.textContent = text;
 }
-
-function setState(text) { $("state").textContent = text; }
 
 function setVerified(v) {
-  const el = $("verify");
-  el.className = "pill" + (v === true ? " ok" : v === false ? " bad" : "");
-  el.textContent = v === true ? "Outputs match" : v === false ? "Outputs differ" : "Not verified yet";
+  const [text, cls] = v === true ? ["Outputs match", "ok"] : v === false ? ["Outputs differ", "bad"] : ["Not verified yet", ""];
+  setPill("verify", text, cls);
+  setPill("bench-verify", text, cls);
 }
 
-function buildRows(status) {
-  const seq = status.sequential_time;
-  const n = status.image_count || IMAGE_COUNT; // IMAGE_COUNT is only a fallback for mock mode
-  return status.runs.map(r => {
-    const speedup = seq ? seq / r.time : null;
-    return {
-      workers: r.workers, time: r.time, speedup,
-      efficiency: speedup ? speedup / r.workers : null,
-      throughput: n / r.time
-    };
+function lock(on) {
+  $("run").disabled = on;
+  $("modes").disabled = on;
+  $("runs").disabled = on;
+  $("workers").disabled = on || kindNow() !== "compare";
+}
+
+function syncMode() {
+  const kind = kindNow();
+  $("view-compare").hidden = kind !== "compare";
+  $("view-bench").hidden = kind !== "benchmark";
+  $("run").textContent = kind === "compare" ? "Run comparison" : "Run full benchmark";
+  lock(false);
+}
+document.querySelectorAll("input[name=kind]").forEach(r => r.addEventListener("change", syncMode));
+
+/* ---------- Compare view (two columns + combined metrics) ---------- */
+function renderCompare(s) {
+  const phase = s.phase, n = s.image_count, p = s.parallel_workers;
+  const ts = s.sequential_time, tp = s.parallel_time;
+  const seqRunning = phase === "warmup" || phase === "sequential";
+
+  $("seq-bar").style.width = (s.seq_progress || 0) + "%";
+  $("par-bar").style.width = (s.par_progress || 0) + "%";
+  lit("seq-cores", seqRunning ? 1 : 0);
+  lit("par-cores", phase === "parallel" ? s.active_workers : 0);
+
+  setPill("seq-state", ts != null ? "Done" : phase === "warmup" ? "Warming up" : seqRunning ? "Running" : "Waiting", ts != null ? "ok" : "");
+  setPill("par-state", tp != null ? "Done" : phase === "parallel" ? "Running" : "Waiting", tp != null ? "ok" : "");
+
+  $("seq-time").textContent = ts != null ? ts.toFixed(2) + " s" : "–";
+  $("par-time").textContent = tp != null ? tp.toFixed(2) + " s" : "–";
+  $("seq-detail").textContent = ts != null ? `${fmt(n / ts, 2)} images per second. Runs: ${runList(s.sequential_run_times)}` : "";
+  $("par-detail").textContent = tp != null ? `${p} workers, ${fmt(n / tp, 2)} images per second. Runs: ${runList(s.parallel_run_times)}` : "";
+
+  const speed = ts != null && tp != null ? ts / tp : null;
+  const eff = speed != null && p ? speed / p : null;
+  const rows = [
+    ["Workers", "1", p != null ? p : "–"],
+    ["Time (s)", fmt(ts, 2), fmt(tp, 2)],
+    ["Images per second", ts != null ? fmt(n / ts, 2) : "–", tp != null ? fmt(n / tp, 2) : "–"],
+    ["Speedup (Ts / Tp)", ts != null ? "1.00x" : "–", speed != null ? fmt(speed, 2) + "x" : "–"],
+    ["Efficiency (speedup / workers)", ts != null ? "1.00" : "–", eff != null ? fmt(eff, 2) : "–"]
+  ];
+  $("metrics").innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join("");
+
+  $("summary").textContent = speed == null ? "" : speed >= 1
+    ? `Parallel finished ${speed.toFixed(2)}x faster than sequential. With ${p} workers the ideal is ${p}x, so efficiency is ${eff.toFixed(2)} (1.00 would be perfect).`
+    : `Parallel was slower this time. With few workers, the cost of starting the processes can outweigh the gain.`;
+}
+
+/* ---------- Full benchmark view ---------- */
+function renderBench(s) {
+  $("bench-bar").style.width = (s.progress || 0) + "%";
+  lit("bench-cores", s.active_workers);
+  const ts = s.sequential_time, n = s.image_count;
+  if (ts == null || !s.runs.length) return;
+
+  const rows = s.runs.map(r => {
+    const speedup = ts / r.time;
+    return { workers: r.workers, time: r.time, speedup, efficiency: speedup / r.workers, throughput: n / r.time };
   });
+  $("rows").innerHTML =
+    `<tr><td>Sequential</td><td>${ts.toFixed(1)}</td><td>1.00x</td><td>1.00</td><td>${(n / ts).toFixed(2)}</td></tr>` +
+    rows.map(r => `<tr><td>${r.workers} workers</td><td>${r.time.toFixed(1)}</td><td>${r.speedup.toFixed(2)}x</td>` +
+      `<td>${r.efficiency.toFixed(2)}</td><td>${r.throughput.toFixed(2)}</td></tr>`).join("");
+  $("count").textContent = `Processed ${n} images per test.`;
+  renderCharts(rows);
 }
 
-function renderTable(rows) {
-  const body = $("rows");
-  if (!rows.length) return;
-  const f = (v, d) => (v == null ? "n/a" : v.toFixed(d));
-  body.innerHTML = rows.map(r =>
-    `<tr><td>${r.workers}</td><td>${f(r.time, 1)}</td><td>${f(r.speedup, 2)}x</td>` +
-    `<td>${f(r.efficiency, 2)}</td><td>${f(r.throughput, 2)}</td></tr>`
-  ).join("");
+/* ---------- Image browser ---------- */
+let names = [], idx = 0;
+
+async function loadBrowser() {
+  try {
+    names = await api.images();
+  } catch (err) {
+    $("message").textContent = err.message;
+    return;
+  }
+  if (!names.length) return;
+  const pick = $("pick");
+  pick.replaceChildren();
+  names.forEach((name, i) => pick.add(new Option(name, i)));
+  $("browser").hidden = false;
+  show(0);
 }
 
-function showSample(name) {
-  [["original", "original"], ["sequential", "sequential"], ["parallel", "parallel"]].forEach(([id, stage]) => {
-    const el = $("img-" + id);
-    el.innerHTML = name ? `<img alt="${stage} version of ${name}" src="/api/preview/${stage}/${encodeURIComponent(name)}">` : "No image yet";
+function show(i) {
+  if (!names.length) return;
+  idx = (i + names.length) % names.length;
+  $("pick").value = idx;
+  const name = names[idx];
+  ["original", "sequential", "parallel"].forEach(stage => {
+    const img = new Image();
+    img.alt = `${stage} version of ${name}`;
+    img.src = `/api/preview/${stage}/${encodeURIComponent(name)}`;
+    $("img-" + stage).replaceChildren(img);
   });
+  $("pos").textContent = `Image ${idx + 1} of ${names.length}: ${name}`;
 }
 
-function syncSettings() {
-  const kind = document.querySelector("input[name=kind]:checked").value;
-  $("workers").disabled = kind !== "parallel";
-  $("run").textContent = { sequential: "Run sequential", parallel: "Run parallel", benchmark: "Run benchmark" }[kind];
-}
-document.querySelectorAll("input[name=kind]").forEach(r => r.addEventListener("change", syncSettings));
-syncSettings();
-$("note").textContent = USE_MOCK ? "Using sample data. No images are processed yet." : "";
+$("prev").addEventListener("click", () => show(idx - 1));
+$("next").addEventListener("click", () => show(idx + 1));
+$("pick").addEventListener("change", e => show(Number(e.target.value)));
+document.addEventListener("keydown", e => {
+  if (!names.length || /SELECT|INPUT/.test(document.activeElement.tagName)) return;
+  if (e.key === "ArrowRight") show(idx + 1);
+  if (e.key === "ArrowLeft") show(idx - 1);
+});
 
+/* ---------- Running a job ---------- */
 let timer = null;
 
-async function poll(id) {
+async function poll(id, kind) {
   try {
     const s = await api.status(id);
-    $("bar-fill").style.width = s.progress + "%";
     $("message").textContent = s.message;
-    showCores(s.active_workers);
-    if (s.image_count) $("count").textContent = "Processed " + s.image_count + " images per test.";
-    const rows = buildRows(s);
-    renderTable(rows);
-    if (rows.length && rows.every(r => r.speedup != null)) renderCharts(rows);
-    if (s.sample) showSample(s.sample);
-
-    if (s.state === "running") { timer = setTimeout(() => poll(id), USE_MOCK ? 300 : 1000); return; }
-    setState(s.state === "done" ? "Done" : "Error");
+    (kind === "compare" ? renderCompare : renderBench)(s);
+    if (s.state === "running") { timer = setTimeout(() => poll(id, kind), 700); return; }
     setVerified(s.verified);
-    $("run").disabled = false;
+    lock(false);
+    if (s.state === "done") await loadBrowser();
   } catch (err) {
-    setState("Error");
     $("message").textContent = err.message;
-    showCores(0);
-    $("run").disabled = false;
+    lock(false);
   }
 }
 
 $("run").addEventListener("click", async () => {
-  const kind = document.querySelector("input[name=kind]:checked").value;
+  const kind = kindNow();
   const body = { mode: kind, workers: Number($("workers").value), runs: Number($("runs").value) };
-  $("run").disabled = true;
-  setState("Running"); setVerified(null);
-  $("bar-fill").style.width = "0";
-  $("message").textContent = "Starting...";
   clearTimeout(timer);
+  lock(true);
+  renderCompare({});
+  $("bench-bar").style.width = "0";
+  lit("bench-cores", 0);
+  $("rows").innerHTML = '<tr><td colspan="5" class="empty">Running. Results appear when the benchmark finishes.</td></tr>';
+  $("count").textContent = "";
+  setVerified(null);
+  $("browser").hidden = true;
+  names = [];
+  $("message").textContent = "Starting...";
   try {
     const { job_id } = await api.start(kind, body);
-    poll(job_id);
+    poll(job_id, kind);
   } catch (err) {
-    setState("Error");
     $("message").textContent = err.message;
-    $("run").disabled = false;
+    lock(false);
   }
 });
+
+renderCompare({});
+syncMode();

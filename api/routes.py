@@ -65,8 +65,8 @@ def create_app():
     def run():
         data = request.get_json(silent=True) or {}
         mode = data.get("mode")
-        if mode not in ("sequential", "parallel"):
-            return error("mode must be 'sequential' or 'parallel'.")
+        if mode not in ("sequential", "parallel", "compare"):
+            return error("mode must be 'sequential', 'parallel' or 'compare'.")
         runs = parse_runs(data)
         if runs is None:
             return error(f"runs must be a whole number from 1 to {config.MAX_RUNS}.")
@@ -74,7 +74,7 @@ def create_app():
             workers = int(data.get("workers", 4))
         except (TypeError, ValueError):
             workers = None
-        if mode == "parallel" and workers not in config.ALLOWED_WORKERS:
+        if mode in ("parallel", "compare") and workers not in config.ALLOWED_WORKERS:
             return error(f"workers must be one of {list(config.ALLOWED_WORKERS)}.")
         return start_job(mode, workers, runs)
 

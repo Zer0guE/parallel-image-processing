@@ -11,57 +11,87 @@
 </head>
 <body>
 <header class="top">
-  <h1>Parallel Image Processing</h1>
-  <p>Run the same filter pipeline on one core, then on many, and see how much faster it gets.</p>
+  <h1 style="font-family: monospace; font-weight: bold; font-size: 40px;">Parallel Image Processing</h1><br>
+  <p>The same filter on the same images: first on one core, then on many. Press one button and compare.</p><br>
 </header>
 
-<main class="layout">
-  <aside class="panel" aria-label="Run settings">
-    <h2>Run settings</h2>
+<main class="content wrap">
+  <details class="card howto">
+    <summary>How this program works</summary>
+    <ol>
+      <li><b>The job.</b> Every image gets the same three steps: grayscale, Gaussian blur, then Sobel edge detection. The result is saved as a PNG.</li>
+      <li><b>Sequential.</b> One process handles the images one after another on a single core. Its total time is <b>Ts</b>.</li>
+      <li><b>Parallel.</b> A pool of worker processes shares the images. Each worker is its own program on its own core. Its total time is <b>Tp</b>.</li>
+      <li><b>The comparison.</b> Speedup = Ts / Tp. Efficiency = speedup / workers (1.00 is perfect). Images per second shows how much work gets done each second. The two runs go one after the other, never together, so they do not compete for the CPU.</li>
+      <li><b>The check.</b> When both finish, every parallel output image is compared pixel by pixel with the sequential one.</li>
+    </ol>
+  </details>
 
-    <fieldset>
+  <section class="card controls" aria-label="Run settings">
+    <fieldset id="modes">
       <legend>What to run</legend>
-      <label><input type="radio" name="kind" value="sequential"> Sequential (1 core)</label>
-      <label><input type="radio" name="kind" value="parallel"> Parallel</label>
-      <label><input type="radio" name="kind" value="benchmark" checked> Full benchmark (1, 2, 4, 8 workers)</label>
+      <label><input type="radio" name="kind" value="compare" checked> Compare sequential vs. parallel</label>
+      <label><input type="radio" name="kind" value="benchmark"> Full benchmark (1, 2, 4, 8 workers)</label>
     </fieldset>
-
     <label class="field">Worker processes
       <select id="workers">
         <option>1</option><option>2</option><option selected>4</option><option>8</option>
       </select>
     </label>
-
     <label class="field">Runs per test
       <input id="runs" type="number" min="1" max="5" value="3">
     </label>
+    <button id="run" class="primary" type="button">Run comparison</button>
+    <p id="message" class="note" aria-live="polite">Press the button. Sequential runs first, then parallel.</p>
+  </section>
 
-    <button id="run" class="primary" type="button">Run benchmark</button>
-    <p id="note" class="note"></p>
-  </aside>
+  <div id="view-compare" class="content">
+    <div class="duo">
+      <section class="card" aria-label="Sequential results">
+        <div class="row"><h2>Sequential</h2><span id="seq-state" class="pill">Waiting</span></div>
+        <p class="sub">One process, one core, one image at a time.</p>
+        <div id="seq-cores" class="cores" aria-hidden="true"></div>
+        <div class="bar"><div id="seq-bar"></div></div>
+        <p id="seq-time" class="big">–</p>
+        <p id="seq-detail" class="note"></p>
+      </section>
+      <section class="card" aria-label="Parallel results">
+        <div class="row"><h2>Parallel</h2><span id="par-state" class="pill">Waiting</span></div>
+        <p class="sub">A pool of worker processes sharing the images.</p>
+        <div id="par-cores" class="cores" aria-hidden="true"></div>
+        <div class="bar"><div id="par-bar"></div></div>
+        <p id="par-time" class="big">–</p>
+        <p id="par-detail" class="note"></p>
+      </section>
+    </div>
 
-  <div class="content">
-    <section class="card" aria-live="polite">
-      <div class="row">
-        <h2>Progress</h2>
-        <span id="state" class="pill">Idle</span>
+    <section class="card">
+      <div class="row"><h2>Combined metrics</h2><span id="verify" class="pill">Not verified yet</span></div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Metric</th><th>Sequential</th><th>Parallel</th></tr></thead>
+          <tbody id="metrics"></tbody>
+        </table>
       </div>
-      <div id="cores" class="cores" aria-label="CPU cores in use"></div>
-      <div class="bar"><div id="bar-fill"></div></div>
-      <p id="message" class="note">Choose a run and press the button.</p>
+      <p id="summary" class="note"></p>
+    </section>
+  </div>
+
+  <div id="view-bench" class="content" hidden>
+    <section class="card">
+      <h2>Progress</h2>
+      <div id="bench-cores" class="cores" aria-hidden="true"></div>
+      <div class="bar"><div id="bench-bar"></div></div>
     </section>
 
     <section class="card">
-      <div class="row">
-        <h2>Results</h2>
-        <span id="verify" class="pill">Not verified yet</span>
-      </div>
+      <div class="row"><h2>Results</h2><span id="bench-verify" class="pill">Not verified yet</span></div>
       <div class="scroll">
         <table>
           <thead>
-            <tr><th>Workers</th><th>Time (s)</th><th>Speedup</th><th>Efficiency</th><th>Images/s</th></tr>
+            <tr><th>Run</th><th>Time (s)</th><th>Speedup</th><th>Efficiency</th><th>Images/s</th></tr>
           </thead>
-          <tbody id="rows"><tr><td colspan="5" class="empty">No results yet. Run a benchmark to fill this table.</td></tr></tbody>
+          <tbody id="rows"><tr><td colspan="5" class="empty">No results yet. Run the benchmark to fill this table.</td></tr></tbody>
         </table>
       </div>
       <p id="count" class="note"></p>
@@ -75,16 +105,24 @@
         <div><canvas id="chart-eff"></canvas></div>
       </div>
     </section>
-
-    <section class="card">
-      <h2>Image comparison</h2>
-      <div class="compare">
-        <figure><div class="ph" id="img-original">No image yet</div><figcaption>Original</figcaption></figure>
-        <figure><div class="ph" id="img-sequential">No image yet</div><figcaption>Sequential output</figcaption></figure>
-        <figure><div class="ph" id="img-parallel">No image yet</div><figcaption>Parallel output</figcaption></figure>
-      </div>
-    </section>
   </div>
+
+  <section id="browser" class="card" hidden>
+    <div class="row wrap-row">
+      <h2>Browse the results</h2>
+      <div class="nav">
+        <button id="prev" class="ghost" type="button">Previous</button>
+        <select id="pick" aria-label="Choose an image"></select>
+        <button id="next" class="ghost" type="button">Next</button>
+      </div>
+    </div>
+    <div class="compare">
+      <figure><div class="ph" id="img-original"></div><figcaption>Original</figcaption></figure>
+      <figure><div class="ph" id="img-sequential"></div><figcaption>Sequential output</figcaption></figure>
+      <figure><div class="ph" id="img-parallel"></div><figcaption>Parallel output</figcaption></figure>
+    </div>
+    <p id="pos" class="note"></p>
+  </section>
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
